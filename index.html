@@ -11,6 +11,7 @@
     :root {
       --primary-blue: #0B3D91;
       --primary-green: #137547;
+      --primary-red: #E53935;
     }
     body {
       font-family: 'Montserrat', sans-serif;
@@ -18,10 +19,17 @@
       color: #333;
       margin: 0;
       padding: 20px;
+      position: relative;
     }
     .container {
       max-width: 1200px;
       margin: auto;
+    }
+    .logo {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 150px;
     }
     h1, h2, h3 {
       color: var(--primary-blue);
@@ -50,6 +58,7 @@
   </style>
 </head>
 <body>
+  <img src="termeletrica-pernambuco-iii-logo-png_seeklogo-272065.png" alt="Logo Pernambuco III" class="logo">
   <div class="container">
     <h1>Análise de Consumo e Nível do Tanque PBF901</h1>
 
@@ -68,76 +77,86 @@
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       const csvFile = 'Verificação consumo e nível do tanque PBF901_CSV.csv';
+      const msPerDay = 24 * 60 * 60 * 1000;
 
       fetch(csvFile)
         .then(r => r.text())
         .then(text => {
-          const fixed = text.replace(/(\d),(\d)/g,'$1.$2');
+          // Ajusta decimais estilo PT
+          const fixed = text.replace(/(\d),(\d)/g, '$1.$2');
           const rows = Papa.parse(fixed, { delimiter: ';', skipEmptyLines: true }).data;
           const raw = rows.slice(1);
 
+          // Mapear e ordenar
           const data = raw.map(row => {
-            const [ds, sond, estoque, estoqueAnt, consumo, volRec, flag] = row;
+            const [ds, , estoque, , consumo, volRec, flag] = row;
             const [d, m, y] = ds.split('/');
             return {
               date: new Date(+y, m - 1, +d),
               consumo: parseFloat(consumo) || 0,
               estoque: parseFloat(estoque) || 0,
               volRec: parseFloat(volRec) || 0,
-              flag: (flag && flag.trim() === 'Recebimento')
+              flag: flag && flag.trim() === 'Recebimento'
             };
           });
+          data.sort((a, b) => a.date - b.date);
 
-          // 1 & 2 – Médias
-          const all = data.map(d => d.consumo);
-          const avgAll = (all.reduce((a,b)=>a+b,0) / all.length).toFixed(2);
-          const cutoff = new Date(2025,5,30);
-          const upTo = data.filter(d=> d.date <= cutoff).map(d=> d.consumo);
-          const avgUntil = (upTo.reduce((a,b)=>a+b,0) / upTo.length).toFixed(2);
+          // Cálculo de médias (soma / dias do período)
+          const firstDate = data[0].date;
+          const lastDate = data[data.length - 1].date;
+          const totalDays = Math.floor((lastDate - firstDate) / msPerDay) + 1;
+          const sumAll = data.reduce((acc, d) => acc + d.consumo, 0);
+          const avgAll = (sumAll / totalDays).toFixed(2);
 
-          // 3 – Média semanal (segunda–domingo)
+          const cutoff = new Date(2025, 5, 30);
+          const untilData = data.filter(d => d.date <= cutoff);
+          const daysUntil = Math.floor((cutoff - firstDate) / msPerDay) + 1;
+          const sumUntil = untilData.reduce((acc, d) => acc + d.consumo, 0);
+          const avgUntil = (sumUntil / daysUntil).toFixed(2);
+
+          // Médias semanais
           const weeks = {};
           data.forEach(d => {
             const day = d.date.getDay();
             const monday = new Date(d.date);
             const diff = (day + 6) % 7;
             monday.setDate(monday.getDate() - diff);
-            const key = monday.toISOString().slice(0,10);
-            (weeks[key] = weeks[key]||[]).push(d.consumo);
+            const key = monday.toISOString().slice(0, 10);
+            (weeks[key] = weeks[key] || []).push(d.consumo);
           });
           const weekly = Object.entries(weeks).map(([monday, vals]) => {
-            const avg = (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);
+            const avg = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2);
             const start = new Date(monday);
             const end = new Date(start);
             end.setDate(start.getDate() + 6);
-            const fmt = d => `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
+            const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
             return { period: `${fmt(start)} – ${fmt(end)}`, avg };
           });
 
-          // 4 – Média a cada 15 dias
+          // Médias a cada 15 dias
           const halves = {};
           data.forEach(d => {
             const y = d.date.getFullYear();
-            const m = (d.date.getMonth()+1).toString().padStart(2,'0');
+            const m = String(d.date.getMonth() + 1).padStart(2, '0');
             const half = d.date.getDate() <= 15 ? '1-15' : '16-end';
             const key = `${y}-${m}-${half}`;
-            (halves[key] = halves[key]||[]).push(d.consumo);
+            (halves[key] = halves[key] || []).push(d.consumo);
           });
-          const half15 = Object.entries(halves).map(([key,vals])=>{
-            const [y,m,half] = key.split('-');
-            const start = half==='1-15' ? `01/${m}/${y}` : `16/${m}/${y}`;
-            const endDay = half==='1-15' ? 15 : new Date(+y, +m, 0).getDate();
-            const end = `${endDay.toString().padStart(2,'0')}/${m}/${y}`;
-            const avg = (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);
+          const half15 = Object.entries(halves).map(([key, vals]) => {
+            const [y, m, half] = key.split('-');
+            const start = half === '1-15' ? `01/${m}/${y}` : `16/${m}/${y}`;
+            const endDay = half === '1-15' ? 15 : new Date(+y, +m, 0).getDate();
+            const end = `${String(endDay).padStart(2,'0')}/${m}/${y}`;
+            const avg = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2);
             return { period: `${start} – ${end}`, avg };
           });
 
-          // 5 – Datas de recebimento
+          // Datas de recebimento
           const receipts = data
-            .filter(d=>d.flag)
+            .filter(d => d.flag)
             .map(d => {
               const dt = d.date;
-              const str = `${dt.getDate().toString().padStart(2,'0')}/${(dt.getMonth()+1).toString().padStart(2,'0')}/${dt.getFullYear()}`;
+              const str = `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}`;
               return `${str} (${d.volRec.toFixed(2)} m³)`;
             });
 
@@ -146,54 +165,62 @@
             <p><strong>Média diária (período total):</strong> ${avgAll} L</p>
             <p><strong>Média diária até 30/06/2025:</strong> ${avgUntil} L</p>
             <h3>Média semanal (2ª → domingo):</h3>
-            <ul>${weekly.map(w=>`<li>${w.period}: ${w.avg} L</li>`).join('')}</ul>
+            <ul>${weekly.map(w => `<li>${w.period}: ${w.avg} L</li>`).join('')}</ul>
             <h3>Média cada 15 dias:</h3>
-            <ul>${half15.map(h=>`<li>${h.period}: ${h.avg} L</li>`).join('')}</ul>
+            <ul>${half15.map(h => `<li>${h.period}: ${h.avg} L</li>`).join('')}</ul>
             <p><strong>Datas de recebimento:</strong> ${receipts.join('; ')}</p>
           `;
 
-          // Gráfico 1 – Consumo Diário
-          const trace1 = {
-            x: data.map(d=> d.date),
-            y: data.map(d=> d.consumo),
-            mode: 'markers',
-            marker: {
-              color: data.map(d=> d.flag ? 'var(--primary-green)' : 'var(--primary-blue)'),
-              size: 8
-            },
-            hovertemplate: data.map(d=>
-              d.flag
-                ? `Recebimento<br>%{x|%d/%m/%Y}`
-                : `Consumo: %{y} L<br>%{x|%d/%m/%Y}`
-            )
+          // Gráfico 1 – Consumo Diário (barras vermelhas)
+          const traceBar = {
+            x: data.map(d => d.date),
+            y: data.map(d => d.consumo),
+            type: 'bar',
+            marker: { color: 'var(--primary-red)' },
+            hovertemplate: 'Consumo: %{y} L<br>%{x|%d/%m/%Y}<extra></extra>'
           };
-          Plotly.newPlot('chart-consumo', [trace1], {
-            margin:{t:40,b:40,l:50,r:20},
-            xaxis:{title:'Data'},
-            yaxis:{title:'Consumo (L)'}
-          }, {responsive:true});
+          Plotly.newPlot('chart-consumo', [traceBar], {
+            margin: { t: 40, b: 40, l: 50, r: 20 },
+            xaxis: { title: 'Data' },
+            yaxis: { title: 'Consumo (L)' }
+          }, { responsive: true });
 
-          // Gráfico 2 – Nível do Tanque
-          const trace2 = {
-            x: data.map(d=> d.date),
-            y: data.map(d=> d.estoque),
+          // Gráfico 2 – Nível do Tanque + terças tracejadas
+          const yVals = data.map(d => d.estoque);
+          const yMax = Math.max(...yVals);
+          const traceLine = {
+            x: data.map(d => d.date),
+            y: yVals,
             mode: 'lines+markers',
             line: { color: 'var(--primary-blue)' },
             marker: {
-              color: data.map(d=> d.flag ? 'var(--primary-green)' : 'var(--primary-blue)'),
+              color: data.map(d => d.flag ? 'var(--primary-green)' : 'var(--primary-blue)'),
               size: 6
             },
-            hovertemplate: data.map(d=>
+            hovertemplate: data.map(d =>
               d.flag
                 ? `Recebimento: ${d.volRec.toFixed(2)} m³<br>%{x|%d/%m/%Y}`
                 : `Consumo: ${d.consumo} L<br>%{x|%d/%m/%Y}`
             )
           };
-          Plotly.newPlot('chart-nivel', [trace2], {
-            margin:{t:40,b:40,l:50,r:20},
-            xaxis:{title:'Data'},
-            yaxis:{title:'Estoque (m³)'}
-          }, {responsive:true});
+
+          // Scatter traces para terças-feiras
+          const tuesdayTraces = data
+            .filter(d => d.date.getDay() === 2)  // 0=Domingo, 2=Terça
+            .map(d => ({
+              x: [d.date, d.date],
+              y: [0, yMax],
+              mode: 'lines',
+              line: { color: 'var(--primary-green)', dash: 'dash' },
+              hovertemplate: `Terça-feira - %{x|%d/%m/%Y}<extra></extra>`,
+              showlegend: false
+            }));
+
+          Plotly.newPlot('chart-nivel', [traceLine, ...tuesdayTraces], {
+            margin: { t: 40, b: 40, l: 50, r: 20 },
+            xaxis: { title: 'Data' },
+            yaxis: { title: 'Estoque (m³)' }
+          }, { responsive: true });
         });
     });
   </script>
