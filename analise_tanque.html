@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Análise de Consumo e Nível do Tanque PBF901</title>
+  <!-- Google Font - Poppins para um visual mais moderno -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Plotly.js -->
+  <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+  <!-- PapaParse para CSV -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+  <style>
+    :root {
+      --primary-color: #42A5F5; /* Azul vibrante */
+      --secondary-color: #66BB6A; /* Verde para destaque */
+      --background-light: #E3F2FD; /* Azul claro para fundo */
+      --card-background: #FFFFFF;
+      --text-color: #333333;
+      --shadow-color: rgba(0, 0, 0, 0.1);
+    }
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: var(--background-light);
+      color: var(--text-color);
+      margin: 0;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 20px auto;
+      padding: 20px;
+      background: var(--card-background);
+      border-radius: 12px;
+      box-shadow: 0 6px 20px var(--shadow-color);
+    }
+    h1 {
+      color: var(--primary-color);
+      text-align: center;
+      margin-bottom: 30px;
+      font-weight: 600;
+    }
+    h2 {
+      color: var(--primary-color);
+      border-bottom: 2px solid var(--primary-color);
+      padding-bottom: 10px;
+      margin-top: 40px;
+      margin-bottom: 20px;
+      font-weight: 500;
+    }
+    h3 {
+      color: var(--text-color);
+      margin-top: 30px;
+      margin-bottom: 15px;
+      font-weight: 500;
+    }
+    section {
+      margin-bottom: 40px;
+      padding: 20px;
+      background: var(--card-background);
+      border-radius: 12px;
+      box-shadow: 0 4px 15px var(--shadow-color);
+    }
+    .chart-container {
+      background: var(--card-background);
+      border-radius: 8px;
+      box-shadow: 0 2px 10px var(--shadow-color);
+      padding: 15px;
+      margin-top: 20px;
+      height: 450px; /* Aumentado para melhor visualização */
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #analise {
+      background: var(--card-background);
+      border-radius: 8px;
+      box-shadow: 0 2px 10px var(--shadow-color);
+      padding: 25px;
+      margin-top: 20px;
+    }
+    ul {
+      list-style-type: none;
+      padding-left: 0;
+    }
+    ul li {
+      margin-bottom: 8px;
+      padding-left: 20px;
+      position: relative;
+    }
+    ul li::before {
+      content: '•';
+      color: var(--secondary-color);
+      font-size: 1.2em;
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+    p strong {
+      color: var(--primary-color);
+    }
+    /* Responsividade básica */
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+      .container, section {
+        margin: 10px auto;
+        padding: 15px;
+      }
+      .chart-container {
+        height: 350px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Análise de Consumo e Nível do Tanque PBF901</h1>
+
+    <section id="consumo">
+      <h2>Gráfico de Consumo Diário</h2>
+      <div id="chart-consumo" class="chart-container"></div>
+      <div id="analise"></div>
+    </section>
+
+    <section id="nivel">
+      <h2>Gráfico de Nível do Tanque</h2>
+      <div id="chart-nivel" class="chart-container"></div>
+    </section>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const csvFile = 'Verificação consumo e nível do tanque PBF901_CSV.csv';
+
+      fetch(csvFile)
+        .then(response => response.text())
+        .then(text => {
+          const fixed = text.replace(/(\d),(\d)/g,'$1.$2');
+          const rows = Papa.parse(fixed, { delimiter: ';', skipEmptyLines: true }).data;
+          const raw = rows.slice(1);
+
+          const data = raw.map(row => {
+            const [ds, sond, estoque, estoqueAnt, consumo, volRec, flag] = row;
+            const [d, m, y] = ds.split('/');
+            return {
+              date: new Date(+y, m - 1, +d),
+              consumo: parseFloat(consumo) || 0,
+              estoque: parseFloat(estoque) || 0,
+              volRec: parseFloat(volRec) || 0,
+              flag: (flag && flag.trim() === 'Recebimento')
+            };
+          });
+
+          const all = data.map(d=> d.consumo);
+          const avgAll = (all.reduce((a,b)=>a+b,0) / all.length).toFixed(2);
+          const cutoff = new Date(2025,5,30);
+          const upTo = data.filter(d=> d.date <= cutoff).map(d=> d.consumo);
+          const avgUntil = (upTo.reduce((a,b)=>a+b,0) / upTo.length).toFixed(2);
+
+          const weeks = {};
+          data.forEach(d => {
+            const day = d.date.getDay();
+            const monday = new Date(d.date);
+            const diff = (day + 6) % 7;
+            monday.setDate(monday.getDate() - diff);
+            const key = monday.toISOString().slice(0,10);
+            (weeks[key] = weeks[key]||[]).push(d.consumo);
+          });
+          const weekly = Object.entries(weeks).map(([monday, vals]) => {
+            const avg = (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);
+            const start = new Date(monday);
+            const end = new Date(start);
+            end.setDate(start.getDate() + 6);
+            const fmt = d => `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
+            return { period: `${fmt(start)} – ${fmt(end)}`, avg };
+          });
+
+          const halves = {};
+          data.forEach(d => {
+            const y = d.date.getFullYear();
+            const m = (d.date.getMonth()+1).toString().padStart(2,'0');
+            const half = d.date.getDate() <= 15 ? '1-15' : '16-end';
+            const key = `${y}-${m}-${half}`;
+            (halves[key] = halves[key]||[]).push(d.consumo);
+          });
+          const half15 = Object.entries(halves).map(([key,vals])=>{
+            const [y,m,half] = key.split('-');
+            const start = half==='1-15' ? `01/${m}/${y}` : `16/${m}/${y}`;
+            const endDay = half==='1-15' ? 15 : new Date(+y, +m, 0).getDate();
+            const end = `${endDay.toString().padStart(2,'0')}/${m}/${y}`;
+            const avg = (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);
+            return { period: `${start} – ${end}`, avg };
+          });
+
+          const receipts = data
+            .filter(d=>d.flag)
+            .map(d => {
+              const dt = d.date;
+              const str = `${dt.getDate().toString().padStart(2,'0')}/${(dt.getMonth()+1).toString().padStart(2,'0')}/${dt.getFullYear()}`;
+              return `${str} (${d.volRec.toFixed(2)} m³)`;
+            });
+
+          document.getElementById('analise').innerHTML = `
+            <p><strong>Média diária (período total):</strong> ${avgAll} L</p>
+            <p><strong>Média diária até 30/06/2025:</strong> ${avgUntil} L</p>
+            <h3>Média semanal (2ª → domingo):</h3>
+            <ul>${weekly.map(w=>`<li>${w.period}: ${w.avg} L</li>`).join('')}</ul>
+            <h3>Média cada 15 dias:</h3>
+            <ul>${half15.map(h=>`<li>${h.period}: ${h.avg} L</li>`).join('')}</ul>
+            <p><strong>Datas de recebimento:</strong> ${receipts.join('; ')}</p>
+          `;
+
+          const trace1 = {
+            x: data.map(d=> d.date),
+            y: data.map(d=> d.consumo),
+            mode: 'markers',
+            marker: {
+              color: data.map(d=> d.flag ? 'var(--secondary-color)' : 'var(--primary-color)'),
+              size: 8
+            },
+            hovertemplate: data.map(d=>
+              d.flag
+                ? `Recebimento<br>%{x|%d/%m/%Y}`
+                : `Consumo: %{y} L<br>%{x|%d/%m/%Y}`
+            )
+          };
+          Plotly.newPlot('chart-consumo', [trace1], {
+            margin:{t:40,b:40,l:50,r:20},
+            xaxis:{title:'Data'},
+            yaxis:{title:'Consumo (L)'},
+            plot_bgcolor: 'var(--card-background)',
+            paper_bgcolor: 'var(--card-background)',
+          }, {responsive:true});
+
+          const trace2 = {
+            x: data.map(d=> d.date),
+            y: data.map(d=> d.estoque),
+            mode: 'lines+markers',
+            line: { color: 'var(--primary-color)' },
+            marker: {
+              color: data.map(d=> d.flag ? 'var(--secondary-color)' : 'var(--primary-color)'),
+              size: 6
+            },
+            hovertemplate: data.map(d=>
+              d.flag
+                ? `Recebimento: ${d.volRec.toFixed(2)} m³<br>%{x|%d/%m/%Y}`
+                : `Consumo: ${d.consumo} L<br>%{x|%d/%m/%Y}`
+            )
+          };
+          Plotly.newPlot('chart-nivel', [trace2], {
+            margin:{t:40,b:40,l:50,r:20},
+            xaxis:{title:'Data'},
+            yaxis:{title:'Estoque (m³)'},
+            plot_bgcolor: 'var(--card-background)',
+            paper_bgcolor: 'var(--card-background)',
+          }, {responsive:true});
+        });
+    });
+  </script>
+</body>
+</html>
+
+
